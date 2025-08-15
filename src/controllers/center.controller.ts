@@ -1,0 +1,156 @@
+import type { Request, Response, NextFunction } from "express";
+import { prisma } from "../db/prisma.js";
+import { AppError } from "../utils/AppError.js";
+import { catchAsync } from "../utils/catchAsync.js";
+
+interface CreateCenterBody {
+    name: string;
+    location: string;
+    code: number;
+}
+
+interface AssignHeadsBody {
+    businessHeadId?: string;
+    academicHeadId?: string;
+}
+export const createCenter = catchAsync(
+    async (req: Request, res: Response, next: NextFunction) => {
+        const { name, location, code } = req.body as CreateCenterBody;
+
+        if (!name || !location || !code) {
+            throw new AppError("Missing required fields: name, location, code", 400);
+        }
+
+        const existing = await prisma.center.findUnique({ where: { code } });
+        if (existing) {
+            throw new AppError(`Center code ${code} already exists`, 409);
+        }
+
+        const center = await prisma.center.create({
+            data: { name, location, code, business_head: null, academic_head: null },
+        });
+
+
+        res.status(201).json({
+            success: true,
+            message: "Center created successfully",
+            data: center,
+        });
+    }
+);
+
+export const assignCenterHeads = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const code = Number(req.params.code);
+    const { businessHeadId, academicHeadId } = req.body as AssignHeadsBody;
+
+    const center = await prisma.center.findUnique({ where: { code } });
+    if (!center) {
+      throw new AppError(`Center with code ${code} not found`, 404);
+    }
+
+    if (businessHeadId) {
+      const admin = await prisma.admin.findUnique({ where: { id: businessHeadId } });
+      if (!admin) {
+        throw new AppError(`Business head admin ID is invalid`, 400);
+      }
+    }
+
+    if (academicHeadId) {
+      const admin = await prisma.admin.findUnique({ where: { id: academicHeadId } });
+      if (!admin) {
+        throw new AppError(`Academic head admin ID is invalid`, 400);
+      }
+    }
+
+    const updated = await prisma.center.update({
+      where: { code },
+      data: {
+        ...(businessHeadId && { business_head: businessHeadId }),
+        ...(academicHeadId && { academic_head: academicHeadId }),
+      },
+      select: {
+        id: true,
+        name: true,
+        location: true,
+        code: true,
+        createdAt: true,
+        updatedAt: true,
+        businessHead: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            linkedin: true,
+            designation: true,
+            lastLoginAt: true
+          }
+        },
+        academicHead: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            linkedin: true,
+            designation: true,
+            lastLoginAt: true
+          }
+        }
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Center heads updated successfully",
+      data: updated,
+    });
+  }
+);
+
+export const getAllCenters = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const centers = await prisma.center.findMany({
+      select: {
+        id: true,
+        name: true,
+        location: true,
+        code: true,
+        business_head: true,
+        academic_head: true,
+        createdAt: true,
+        updatedAt: true,
+        businessHead: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            linkedin: true,
+            designation: true,
+            lastLoginAt: true
+          }
+        },
+        academicHead: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            linkedin: true,
+            designation: true,
+            lastLoginAt: true
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    res.status(200).json({
+      success: true,
+      count: centers.length,
+      data: centers
+    });
+  }
+);
