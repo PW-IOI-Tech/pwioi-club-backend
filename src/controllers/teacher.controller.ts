@@ -241,7 +241,8 @@ export const createTeachersFromExcel = catchAsync(async (req: Request, res: Resp
     if (!sheetName) throw new AppError("Excel file contains no sheets", 400);
 
     const worksheet = workbook.Sheets[sheetName];
-    const rawData = XLSX.utils.sheet_to_json(worksheet!);
+    const rawData = XLSX.utils.sheet_to_json(worksheet!, { raw: false });
+
 
     const REQUIRED_COLUMNS = ['name', 'email', 'phone', 'role', 'gender'];
     if (rawData.length > 0) {
@@ -411,6 +412,86 @@ export const permanentlyDeleteTeacher = catchAsync(async (req: Request, res: Res
     success: true,
     message: `Teacher ${teacher.name} deleted successfully`,
   });
+});
+
+const teacherUpdateSchema = z.object({
+    name: z.string().min(1, "Name is required").optional(),
+    email: z.string().email("A valid email is required").optional(),
+    phone: z.string().regex(/^\d{10,15}$/, "A valid phone number (10-15 digits) is required").optional(),
+    pwId: z.string().optional().nullable(),
+    role: z.nativeEnum(TeacherRole).optional(),
+    gender: z.nativeEnum(Gender).optional(),
+    designation: z.string().optional().nullable(),
+}).strict();
+
+export const updateTeacher = catchAsync(async (req: Request, res: Response) => {
+    const { teacherId } = req.params;
+    const { role, id: adminId } = req.user!;
+
+    if (!teacherId) {
+        throw new AppError("Teacher ID is required in the URL.", 400);
+    }
+    
+    const parsed = teacherUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({
+            status: "fail",
+            errors: parsed.error.format(),
+        });
+    }
+    const updateData = parsed.data;
+
+    if (Object.keys(updateData).length === 0) {
+        throw new AppError("No fields provided for update.", 400);
+    }
+
+    const teacher = await prisma.teacher.findUnique({
+        where: { id: teacherId },
+    });
+
+    if (!teacher) {
+        throw new AppError("Teacher not found.", 404);
+    }
+
+    await authorizeTeacherManagement(teacher.center_id, role, adminId);
+
+    const conflictChecks = [];
+    if (updateData.email && updateData.email.toLowerCase() !== teacher.email.toLowerCase()) {
+        conflictChecks.push(
+            prisma.teacher.findFirst({ where: { email: updateData.email, id: { not: teacherId } } })
+                .then(t => t ? { field: 'email', value: updateData.email } : null)
+        );
+    }
+    if (updateData.phone && updateData.phone !== teacher.phone) {
+        conflictChecks.push(
+            prisma.teacher.findFirst({ where: { phone: updateData.phone, id: { not: teacherId } } })
+                 .then(t => t ? { field: 'phone', value: updateData.phone } : null)
+        );
+    }
+    if (updateData.pwId && updateData.pwId !== teacher.pwId) {
+        conflictChecks.push(
+            prisma.teacher.findFirst({ where: { pwId: updateData.pwId, id: { not: teacherId } } })
+                 .then(t => t ? { field: 'pwId', value: updateData.pwId } : null)
+        );
+    }
+    
+    const conflicts = (await Promise.all(conflictChecks)).filter(Boolean);
+    
+    if (conflicts.length > 0) {
+        const conflictErrors = conflicts.map(c => `A teacher with this ${c!.field} (${c!.value}) already exists.`);
+        throw new AppError(conflictErrors.join(' '), 409);
+    }
+
+    const updatedTeacher = await prisma.teacher.update({
+        where: { id: teacherId },
+        data: updateData as any,
+    });
+
+    res.status(200).json({
+        success: true,
+        message: "Teacher details updated successfully.",
+        data: sanitizeTeacherData(updatedTeacher),
+    });
 });
 
 
@@ -624,7 +705,7 @@ export const getTeacherSubjects = catchAsync(async (req: Request, res: Response)
 export const updateTeacherExperience = catchAsync(
   async (req: Request, res: Response) => {
     const user = req.user!;
-    const experienceId = req.params.id;
+    const experienceId = req.params.experienceId;
 
     if (!experienceId) {
       throw new AppError("Experience Id required", 400);
@@ -675,7 +756,7 @@ export const getActiveSubjectAttendance = catchAsync(
 export const deleteTeacherExperience = catchAsync(
   async (req: Request, res: Response) => {
     const user = req.user!;
-    const experienceId = req.params.id;
+    const experienceId = req.params.experienceId;
     if (!experienceId) {
       throw new AppError("Experience Id required", 400)
     }
@@ -705,7 +786,7 @@ export const getTeacherAllExperience = catchAsync(
 export const getTeacherExperienceById = catchAsync(
   async (req: Request, res: Response) => {
     const user = req.user!;
-    const experienceId = req.params.id;
+    const experienceId = req.params.experienceId;
     if (!experienceId) {
       throw new AppError("Experience Id required", 400)
     }

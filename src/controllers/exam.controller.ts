@@ -15,7 +15,6 @@ interface ExamMarkRow {
 
 export const uploadExamMarks = async (req: Request, res: Response) => {
   const { examId } = req.params;
-  const teacherId = req.user!.id;
   const overwriteExisting = req.body.overwriteExisting === 'true';
 
   if (!req.file) {
@@ -40,9 +39,7 @@ export const uploadExamMarks = async (req: Request, res: Response) => {
     if (!exam) {
       return res.status(404).json({ success: false, message: 'Exam not found.' });
     }
-    if (exam.subject.teacher_id !== teacherId) {
-      return res.status(403).json({ success: false, message: 'You are not authorized to upload marks for this exam.' });
-    }
+
 
     const eligibleStudents = await prisma.student.findMany({
       where: { division_id: exam.subject.semester.division_id },
@@ -104,7 +101,7 @@ export const uploadExamMarks = async (req: Request, res: Response) => {
         marks_obtained: marksObtained,
         is_present: row.is_present === 'false' || row.is_present === false ? false : true,
         remarks: row.remarks?.toString() || null,
-        graded_by: teacherId,
+        graded_by: req.user!.id,
         graded_at: new Date(),
       };
 
@@ -149,7 +146,7 @@ export const uploadExamMarks = async (req: Request, res: Response) => {
 export const getAllExamByExamType = async (req: Request, res: Response) => {
   try {
     const { subjectId } = req.params;
-    const { exam_type } = req.body;
+    const { exam_type } = req.query as { exam_type?: string };
     if (!subjectId) {
       return res.status(400).json({
         success: false,
@@ -186,7 +183,7 @@ export const getAllExamByExamType = async (req: Request, res: Response) => {
     const exams = await prisma.exam.findMany({
       where: {
         subject_id: subjectId,
-        exam_type: exam_type
+        exam_type: exam_type as ExamType
       },
       select: {
         id: true,
@@ -510,3 +507,42 @@ export const deleteExam=catchAsync(async (req:Request,res:Response)=>{
 
   res.status(200).json(response);  
 })
+
+export const getAllExamsBySubject = catchAsync(async (req: Request, res: Response) => {
+    const { subjectId } = req.params;
+
+    if (!subjectId) {
+        throw new AppError("Subject ID is required.", 400);
+    }
+
+    const subject = await prisma.subject.findUnique({
+        where: { id: subjectId }
+    });
+
+    if (!subject) {
+        throw new AppError("Subject not found.", 404);
+    }
+
+    const exams = await prisma.exam.findMany({
+        where: {
+            subject_id: subjectId,
+        },
+        orderBy: {
+            exam_date: 'asc'
+        }
+    });
+
+    return res.status(200).json({
+        success: true,
+        message: 'Exams fetched successfully',
+        data: {
+            subject: {
+                id: subject.id,
+                name: subject.name,
+                code: subject.code
+            },
+            exams,
+            count: exams.length,
+        }
+    });
+});

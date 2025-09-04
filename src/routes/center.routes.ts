@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticateJwt, requireRoles } from "../middlewares/authMiddleware.js";
-import { assignCenterHeads, createCenter, getAllCenters, getAllCentersByAdmin } from "../controllers/center.controller.js";
+import { assignCenterHeads, createCenter, deleteCenter, getAllCenters, getAllCentersByAdmin, updateCenter } from "../controllers/center.controller.js";
 
 const centerRouter=Router();
 
@@ -11,6 +11,8 @@ centerRouter.put("/:code/assign-heads", authenticateJwt, requireRoles('SUPER_ADM
 centerRouter.get("/all",authenticateJwt,requireRoles('SUPER_ADMIN',"ADMIN","BATCHOPS","OPS"),getAllCenters)
 
 centerRouter.get("/:adminId",authenticateJwt,requireRoles('SUPER_ADMIN',"ADMIN","BATCHOPS","OPS"),getAllCentersByAdmin)
-
+centerRouter.patch('/:centerId',authenticateJwt,requireRoles('SUPER_ADMIN',"ADMIN","BATCHOPS","OPS"),updateCenter)
+centerRouter.delete('/:centerId',authenticateJwt,requireRoles("ADMIN","SUPER_ADMIN","OPS","BATCHOPS"),deleteCenter);
+  
 
 export default centerRouter;

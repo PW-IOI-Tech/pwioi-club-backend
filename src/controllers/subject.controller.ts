@@ -39,13 +39,13 @@ export const createSubject = catchAsync(async (req: Request, res: Response) => {
   const { name, semester_id, credits, code, teacher_id } = validation.data;
 
   // Check if subject code already exists
-  const existingCode = await prisma.subject.findUnique({
-    where: { code }
-  });
+  // const existingCode = await prisma.subject.findUnique({
+  //   where: { code }
+  // });
 
-  if (existingCode) {
-    throw new AppError(`Subject with code '${code}' already exists`, 409);
-  }
+  // if (existingCode) {
+  //   throw new AppError(`Subject with code '${code}' already exists`, 409);
+  // }
 
   // Validate foreign key references
   const [semester, teacher] = await Promise.all([
@@ -100,7 +100,6 @@ export const createSubject = catchAsync(async (req: Request, res: Response) => {
 
 export const getStudentsForSubject = async (req: Request, res: Response) => {
   const { subjectId } = req.params;
-  const teacherId = req.user!.id;
 
   if (!subjectId) {
     throw new AppError("Subject Id Required", 400)
@@ -121,11 +120,8 @@ export const getStudentsForSubject = async (req: Request, res: Response) => {
     if (!subject) {
       return res.status(404).json({ success: false, message: 'Subject not found.' });
     }
-    if (subject.teacher_id !== teacherId) {
-      return res.status(403).json({ success: false, message: 'You are not authorized to access students for this subject.' });
-    }
 
-    // 3. Fetch all students from the subject's division
+
     const students = await prisma.student.findMany({
       where: {
         division_id: subject.semester.division_id,
@@ -420,18 +416,6 @@ export const updateSubject = catchAsync(async (req: Request, res: Response) => {
     throw new AppError("Subject not found", 404);
   }
 
-  if (updates.code && updates.code !== existingSubject.code) {
-    const codeExists = await prisma.subject.findUnique({
-      where: { code: updates.code },
-    });
-    if (codeExists) {
-      throw new AppError(
-        `Subject with code '${updates.code}' already exists`,
-        409
-      );
-    }
-  }
-
   const validationPromises: Promise<void>[] = [];
 
   if (updates.semester_id && updates.semester_id !== existingSubject.semester_id) {
@@ -628,5 +612,69 @@ export const getSubjectStatistics = catchAsync(async (req: Request, res: Respons
         by_exams: subjectsWithMostExams,
       }
     }
+  });
+});
+
+
+
+export const getOngoingSubjectsForTeacherBySchool = catchAsync(async (req: Request, res: Response) => {
+  const { schoolId } = req.params;
+  const teacherId = req.user!.id; // Get teacher ID from authenticated user
+
+  if (!schoolId) {
+    throw new AppError("School ID is required in the URL.", 400);
+  }
+
+  const today = new Date();
+
+  const ongoingSubjects = await prisma.subject.findMany({
+    where: {
+      teacher_id: teacherId,
+      semester: {
+        division: {
+          school_id: schoolId,
+        },
+        start_date: {
+          lte: today, 
+        },
+        OR: [
+          {
+            end_date: {
+              gte: today,
+            },
+          },
+          {
+            end_date: null,
+          },
+        ],
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      credits: true,
+      semester: {
+        select: {
+          id: true,
+          number: true,
+          division: {
+            select: {
+              id: true,
+              code: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: {
+      name: 'asc',
+    },
+  });
+
+  res.status(200).json({
+    success: true,
+    count: ongoingSubjects.length,
+    data: ongoingSubjects,
   });
 });
